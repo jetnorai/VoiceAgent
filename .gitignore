@@ -2,3 +2,6 @@ src/__pycache__/**
 **/*.pyc
 .env
 .env-test
+google_credentials.json
+*_credentials.json
+*_service_account.json

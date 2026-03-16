@@ -113,6 +113,8 @@ async def run_conversation_over_twilio(websocket: WebSocket) -> None:
                     tts_pool=tts_pool,
                     tracer=tracer,
                 )
+                # Trigger opening greeting immediately on call connect
+                await event_queue.put(FluxEndOfTurnEvent(transcript="[CALL_CONNECTED]"))
 
             # ─── UPDATE (pure) ──────────────────────────────────────
             old_phase = state.phase
