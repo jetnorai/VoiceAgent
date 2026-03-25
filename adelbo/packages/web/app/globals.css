@@ -1,0 +1,116 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800;900&family=DM+Sans:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    @apply bg-bg-base text-text-primary font-body;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  * {
+    @apply border-bg-border;
+  }
+
+  ::selection {
+    @apply bg-amber/20 text-text-primary;
+  }
+
+  ::-webkit-scrollbar {
+    @apply w-1.5;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-bg-base;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-bg-border rounded-full;
+  }
+}
+
+@layer components {
+  /* Glass card effect */
+  .glass-card {
+    @apply bg-bg-surface border border-bg-border rounded-card backdrop-blur-sm;
+    background: linear-gradient(135deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.01) 100%);
+  }
+
+  .glass-card-lg {
+    @apply bg-bg-surface border border-bg-border rounded-card-lg backdrop-blur-sm;
+  }
+
+  /* Buttons */
+  .btn-primary {
+    @apply bg-amber text-bg-base font-semibold px-6 py-3 rounded-xl
+           hover:bg-amber-light active:bg-amber-dark
+           transition-all duration-150 ease-out
+           disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-secondary {
+    @apply bg-bg-elevated border border-bg-border text-text-primary font-medium px-6 py-3 rounded-xl
+           hover:border-amber/40 hover:bg-bg-elevated/80
+           transition-all duration-150 ease-out
+           disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-ghost {
+    @apply text-text-secondary font-medium px-4 py-2 rounded-lg
+           hover:text-text-primary hover:bg-bg-elevated
+           transition-all duration-150 ease-out;
+  }
+
+  /* Input fields */
+  .input {
+    @apply bg-bg-elevated border border-bg-border text-text-primary
+           placeholder-text-muted rounded-xl px-4 py-3
+           focus:outline-none focus:border-amber/60 focus:ring-1 focus:ring-amber/30
+           transition-all duration-150;
+  }
+
+  /* Status chips */
+  .chip {
+    @apply inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium;
+  }
+
+  .chip-success {
+    @apply chip bg-success/15 text-success;
+  }
+
+  .chip-amber {
+    @apply chip bg-amber/15 text-amber;
+  }
+
+  .chip-muted {
+    @apply chip bg-bg-elevated text-text-muted;
+  }
+
+  /* Section headers */
+  .section-label {
+    @apply text-xs font-semibold uppercase tracking-wider text-text-muted;
+  }
+
+  /* Dividers */
+  .divider {
+    @apply border-t border-bg-border;
+  }
+
+  /* Skeleton loading */
+  .skeleton {
+    @apply bg-bg-elevated animate-pulse rounded-lg;
+  }
+}
+
+@layer utilities {
+  .text-gradient-amber {
+    @apply bg-gradient-to-r from-amber to-amber-light bg-clip-text text-transparent;
+  }
+
+  .glow-amber {
+    box-shadow: 0 0 40px rgba(232, 168, 56, 0.12);
+  }
+}

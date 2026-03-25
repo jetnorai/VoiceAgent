@@ -1,0 +1,22 @@
+{
+  "name": "@adelbo/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "hardhat compile",
+    "test": "hardhat test",
+    "deploy:testnet": "hardhat run scripts/deploy.ts --network worldchain_testnet",
+    "deploy:mainnet": "hardhat run scripts/deploy.ts --network worldchain",
+    "verify": "hardhat verify"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "@nomicfoundation/hardhat-verify": "^2.0.0",
+    "@openzeppelin/contracts": "^5.0.2",
+    "hardhat": "^2.22.4",
+    "typescript": "^5.4.5",
+    "ts-node": "^10.9.2",
+    "@types/node": "^20.14.2",
+    "dotenv": "^16.4.5"
+  }
+}

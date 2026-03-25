@@ -1,0 +1,19 @@
+node_modules/
+.next/
+dist/
+build/
+.env
+.env.local
+*.env
+
+# Hardhat
+artifacts/
+cache/
+typechain-types/
+
+# Turbo
+.turbo/
+
+# Misc
+.DS_Store
+*.log
