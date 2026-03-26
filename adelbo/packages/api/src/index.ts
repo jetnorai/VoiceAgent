@@ -16,7 +16,6 @@ import { reviewsRouter } from './routes/reviews';
 import { paymentsRouter } from './routes/payments';
 import supportRouter from './routes/support';
 import notificationsRouter from './routes/notifications';
-import { referralsRouter } from './routes/referrals';
 import { adminRouter } from './routes/admin';
 import { errorHandler } from './middleware/errorHandler';
 import { stripeWebhookRouter } from './routes/webhooks/stripe';
@@ -68,7 +67,6 @@ app.use('/api/reviews', reviewsRouter);
 app.use('/api/payments', paymentsRouter);
 app.use('/api/support', supportRouter);
 app.use('/api/notifications', notificationsRouter);
-app.use('/api/referrals', referralsRouter);
 app.use('/api/admin', adminRouter);
 
 // ─── Error handling ───────────────────────────────────────────────────────────
