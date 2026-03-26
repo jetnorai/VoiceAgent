@@ -163,3 +163,34 @@ export async function distributePoolOnChain(
     throw err;
   }
 }
+
+const REPUTATION_ABI = [
+  {
+    name: 'getRateDiscount',
+    type: 'function',
+    inputs: [{ name: 'user', type: 'address' }],
+    outputs: [{ name: 'discountBps', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+] as const;
+
+/**
+ * Returns BPS discount for a user based on their on-chain reputation tier.
+ * Tiers: Explorer=0, Adventurer=50bps (0.5%), Voyager=100bps (1%), Globetrotter=200bps (2%)
+ * Falls back to 0 on any error.
+ */
+export async function getReputationDiscount(userAddress: string): Promise<number> {
+  try {
+    if (!process.env.REPUTATION_ADDRESS) return 0;
+    const publicClient = getPublicClient();
+    const bps = await publicClient.readContract({
+      address: process.env.REPUTATION_ADDRESS as `0x${string}`,
+      abi: REPUTATION_ABI,
+      functionName: 'getRateDiscount',
+      args: [userAddress as `0x${string}`],
+    });
+    return Number(bps);
+  } catch {
+    return 0;
+  }
+}

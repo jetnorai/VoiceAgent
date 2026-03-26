@@ -2,12 +2,12 @@ import { Router } from 'express';
 import { body, validationResult } from 'express-validator';
 import { eq, and, desc } from 'drizzle-orm';
 import { db } from '../db/client';
-import { bookings, bookingEvents, hotels, travelCreditLedger, poolContributions, poolCycles } from '../db/schema';
+import { bookings, bookingEvents, hotels, travelCreditLedger, poolContributions, poolCycles, users } from '../db/schema';
 import { requireAuth } from '../middleware/auth';
 import { AppError } from '../middleware/errorHandler';
 import { liteapi } from '../services/liteapi';
 import { bookingConfidenceSummary, rescueAgent } from '../services/claude';
-import { processOnChainSplit } from '../services/blockchain';
+import { processOnChainSplit, getReputationDiscount } from '../services/blockchain';
 import { logger } from '../utils/logger';
 import { sendBookingConfirmation } from '../services/email';
 import { v4 as uuidv4 } from 'uuid';
@@ -85,11 +85,30 @@ bookingsRouter.post(
         creditToRedeem = 0,
       } = req.body;
 
+      // Look up reputation discount for this user (tier-based BPS reduction on totalAmount)
+      let reputationDiscountBps = 0;
+      try {
+        const [userRecord] = await db.select().from(users).where(eq(users.id, req.user!.userId)).limit(1);
+        const walletAddr = userRecord?.walletAddress || userRecord?.custodialWalletAddress;
+        if (walletAddr) {
+          reputationDiscountBps = await getReputationDiscount(walletAddr);
+        } else {
+          // Off-chain fallback based on DB tier
+          const tierFallback: Record<string, number> = { explorer: 0, adventurer: 50, voyager: 100, globetrotter: 200 };
+          reputationDiscountBps = tierFallback[userRecord?.tier || 'explorer'] ?? 0;
+        }
+      } catch {
+        // Non-fatal — proceed without discount
+      }
+      const reputationDiscount = reputationDiscountBps > 0
+        ? Math.round(totalAmount * reputationDiscountBps) / 10000
+        : 0;
+
       const baseAmount = totalAmount / (1 + ADELBO_MARGIN);
       const marginAmount = totalAmount - baseAmount;
       const travelCreditEarned = baseAmount * TRAVEL_CREDIT_RATE;
       const poolContribution = baseAmount * POOL_RATE;
-      const effectiveAmount = totalAmount - creditToRedeem;
+      const effectiveAmount = totalAmount - creditToRedeem - reputationDiscount;
 
       const clientReference = `adelbo-${uuidv4()}`;
 
@@ -128,7 +147,7 @@ bookingsRouter.post(
         bookingId: booking.id,
         eventType: 'booking_created',
         toStatus: 'pending_payment',
-        metadata: { clientReference },
+        metadata: { clientReference, reputationDiscountBps, reputationDiscount },
       });
 
       // Get AI confidence summary
@@ -161,6 +180,8 @@ bookingsRouter.post(
         effectiveAmount: effectiveAmount.toFixed(2),
         currency,
         confidenceSummary,
+        reputationDiscount: reputationDiscount.toFixed(2),
+        reputationDiscountBps,
       });
     } catch (err) {
       next(err);
