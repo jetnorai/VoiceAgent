@@ -9,10 +9,12 @@
  * and provides the admin fallback trigger.
  */
 
-import { eq } from 'drizzle-orm';
+import { eq, and, lte } from 'drizzle-orm';
 import { db } from '../db/client';
 import { poolCycles, poolContributions, users } from '../db/schema';
 import { logger } from '../utils/logger';
+import cron from 'node-cron';
+import { distributePoolOnChain } from '../services/blockchain';
 
 interface PoolParticipant {
   userId: string;
@@ -127,8 +129,22 @@ export async function distributePool(cycleId: string): Promise<void> {
         eq(poolContributions.cycleId, cycleId)
       );
 
-    // TODO: Transfer USDC to winner.walletAddress via on-chain transaction
     logger.info('Pool winner', { rank: i + 1, userId: winner.userId, amount, loyaltyScore: winner.loyaltyScore });
+  }
+
+  // Execute on-chain distribution for winners with wallet addresses
+  const onChainWinners = winners.filter((w) => w.walletAddress);
+  if (onChainWinners.length > 0) {
+    try {
+      const { hash } = await distributePoolOnChain(onChainWinners as Array<{ walletAddress: string; loyaltyScore: number }>);
+      logger.info('On-chain pool distribution tx', { cycleId, hash });
+    } catch (err: any) {
+      logger.error('On-chain distribution failed, payouts pending manual retry', {
+        cycleId,
+        error: err.message,
+      });
+      // Do not throw — DB state is already updated, on-chain can be retried
+    }
   }
 
   await db
@@ -137,4 +153,38 @@ export async function distributePool(cycleId: string): Promise<void> {
     .where(eq(poolCycles.id, cycleId));
 
   logger.info('Pool distributed', { cycleId, totalAmount, winnerCount: winners.length });
+}
+
+/**
+ * Start the cron-scheduled pool distribution job.
+ * Runs daily at 00:05 UTC. Finds all active cycles that have passed their end date.
+ */
+export function startPoolDistributionJob(): void {
+  cron.schedule('5 0 * * *', async () => {
+    try {
+      const expired = await db
+        .select()
+        .from(poolCycles)
+        .where(
+          and(
+            eq(poolCycles.status, 'active'),
+            lte(poolCycles.endsAt, new Date()),
+          )
+        );
+
+      if (expired.length === 0) {
+        logger.info('Pool distribution: no expired cycles');
+        return;
+      }
+
+      for (const cycle of expired) {
+        logger.info('Distributing pool cycle', { cycleId: cycle.id });
+        await distributePool(cycle.id);
+      }
+    } catch (err: any) {
+      logger.error('Pool distribution job failed', { error: err.message });
+    }
+  });
+
+  logger.info('Pool distribution job scheduled (daily 00:05 UTC)');
 }

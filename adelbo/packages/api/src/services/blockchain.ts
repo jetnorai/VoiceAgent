@@ -123,3 +123,43 @@ export async function getTravelVaultBalance(userAddress: string): Promise<string
     return '0';
   }
 }
+
+const REWARD_POOL_ABI = [
+  {
+    name: 'distributePool',
+    type: 'function',
+    inputs: [
+      { name: 'winners', type: 'address[]' },
+      { name: 'scores', type: 'uint256[]' },
+    ],
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+] as const;
+
+export async function distributePoolOnChain(
+  winners: Array<{ walletAddress: string; loyaltyScore: number }>
+): Promise<{ hash: string }> {
+  try {
+    const walletClient = getWalletClient();
+    const publicClient = getPublicClient();
+
+    const addresses = winners.map((w) => w.walletAddress as `0x${string}`);
+    // Scale loyalty scores to uint256 (multiply by 1e6 to preserve 6 decimal places)
+    const scores = winners.map((w) => BigInt(Math.round(w.loyaltyScore * 1_000_000)));
+
+    const hash = await walletClient.writeContract({
+      address: process.env.REWARD_POOL_ADDRESS as `0x${string}`,
+      abi: REWARD_POOL_ABI,
+      functionName: 'distributePool',
+      args: [addresses, scores],
+    });
+
+    await publicClient.waitForTransactionReceipt({ hash });
+    logger.info('Pool distributed on-chain', { hash, winnerCount: winners.length });
+    return { hash };
+  } catch (err: any) {
+    logger.error('distributePoolOnChain failed', { error: err.message });
+    throw err;
+  }
+}

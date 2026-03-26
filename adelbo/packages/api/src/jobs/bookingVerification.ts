@@ -17,6 +17,7 @@ import { db } from '../db/client';
 import { bookings, bookingEvents, travelCreditLedger, poolContributions, poolCycles } from '../db/schema';
 import { liteapi } from '../services/liteapi';
 import { logger } from '../utils/logger';
+import cron from 'node-cron';
 
 /**
  * Check bookings that should be completed (checkout date + 24hr passed).
@@ -132,4 +133,26 @@ async function issueTravelCredit(booking: any): Promise<void> {
   } catch (err: any) {
     logger.error('issueTravelCredit failed', { bookingId: booking.id, error: err.message });
   }
+}
+
+/**
+ * Start the cron-scheduled booking verification job.
+ * Runs every 10 minutes. In production this is supplemented by Chainlink CRE.
+ */
+export function startBookingVerificationJob(): void {
+  // Run immediately on start
+  processCompletedStays().catch((err) =>
+    logger.error('Initial booking verification failed', { error: err.message })
+  );
+
+  // Then every 10 minutes
+  cron.schedule('*/10 * * * *', async () => {
+    try {
+      await processCompletedStays();
+    } catch (err: any) {
+      logger.error('Booking verification job failed', { error: err.message });
+    }
+  });
+
+  logger.info('Booking verification job scheduled (every 10 min)');
 }

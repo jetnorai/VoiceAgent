@@ -1,8 +1,9 @@
 import { Router } from 'express';
 import { eq, and } from 'drizzle-orm';
 import Stripe from 'stripe';
+import { createPublicClient, http } from 'viem';
 import { db } from '../db/client';
-import { bookings } from '../db/schema';
+import { bookings, bookingEvents } from '../db/schema';
 import { requireAuth } from '../middleware/auth';
 import { AppError } from '../middleware/errorHandler';
 import { logger } from '../utils/logger';
@@ -110,25 +111,79 @@ paymentsRouter.post('/crypto/verify', requireAuth, async (req, res, next) => {
   try {
     const { bookingId, txHash, paymentMethod } = req.body;
 
-    if (!bookingId || !txHash || !['usdc', 'wld'].includes(paymentMethod)) {
+    // 1. Validate inputs
+    if (!bookingId || !txHash || !txHash.startsWith('0x') || !['usdc', 'wld'].includes(paymentMethod)) {
       return next(new AppError(400, 'Invalid verification request', 'VALIDATION_ERROR'));
     }
 
-    // In production: verify the transaction on World Chain
-    // Check it went to MarginSplitter with correct amount
-    // For now, mark as confirmed after basic validation
-    logger.info('Crypto payment verification requested', { bookingId, txHash, paymentMethod });
+    // 2. Fetch booking and verify ownership / state
+    const userId = req.user!.userId;
+    const [booking] = await db
+      .select()
+      .from(bookings)
+      .where(and(eq(bookings.id, bookingId), eq(bookings.userId, userId)))
+      .limit(1);
 
+    if (!booking) return next(new AppError(404, 'Booking not found', 'NOT_FOUND'));
+    if (booking.status !== 'pending_payment') {
+      return next(new AppError(400, 'Booking is not pending payment', 'INVALID_STATE'));
+    }
+
+    // 3. Verify transaction on World Chain via viem
+    const worldChain = {
+      id: 480,
+      name: 'World Chain',
+      nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+      rpcUrls: { default: { http: [process.env.WORLD_CHAIN_RPC || 'https://worldchain-mainnet.g.alchemy.com/public'] } },
+    } as const;
+
+    const publicClient = createPublicClient({
+      chain: worldChain,
+      transport: http(),
+    });
+
+    const receipt = await publicClient.getTransactionReceipt({ hash: txHash as `0x${string}` });
+
+    // 4. Receipt not found
+    if (!receipt) {
+      return next(new AppError(404, 'Transaction not found on chain', 'TX_NOT_FOUND'));
+    }
+
+    // 5. Transaction failed on chain
+    if (receipt.status !== 'success') {
+      return next(new AppError(400, 'Transaction failed on chain', 'TX_FAILED'));
+    }
+
+    // 6. Verify destination is MarginSplitter
+    if (receipt.to?.toLowerCase() !== process.env.MARGIN_SPLITTER_ADDRESS?.toLowerCase()) {
+      return next(new AppError(400, 'Transaction not sent to MarginSplitter', 'INVALID_RECIPIENT'));
+    }
+
+    logger.info('Crypto payment verified on-chain', { bookingId, txHash, paymentMethod });
+
+    // 7. Update booking to confirmed
     await db
       .update(bookings)
       .set({
         onChainTxHash: txHash,
         paymentMethod,
+        status: 'confirmed',
         updatedAt: new Date(),
       })
-      .where(and(eq(bookings.id, bookingId), eq(bookings.userId, req.user!.userId)));
+      .where(eq(bookings.id, bookingId));
 
-    res.json({ verified: true, txHash });
+    // 8. Insert booking event
+    await db.insert(bookingEvents).values({
+      bookingId,
+      eventType: 'payment_confirmed',
+      fromStatus: 'pending_payment',
+      toStatus: 'confirmed',
+      metadata: { txHash, paymentMethod },
+      createdAt: new Date(),
+    });
+
+    // 9. Return success
+    res.json({ verified: true, txHash, bookingId });
   } catch (err) {
     next(err);
   }
