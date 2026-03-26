@@ -8,6 +8,7 @@ import { db } from '../db/client';
 import { hotels } from '../db/schema';
 import { eq } from 'drizzle-orm';
 import { logger } from '../utils/logger';
+import { cache } from '../services/redis';
 
 export const searchRouter = Router();
 
@@ -44,6 +45,13 @@ searchRouter.get(
         offset = '0',
       } = req.query as Record<string, string>;
 
+      // Check Redis cache first (5-minute TTL for search results)
+      const cacheKey = `search:${destination}:${checkin}:${checkout}:${adults}:${currency}:${limit}:${offset}`;
+      const cachedResults = await cache.get(cacheKey);
+      if (cachedResults) {
+        return res.json(cachedResults);
+      }
+
       // Try to determine if destination is a city or country code
       const isCountryCode = /^[A-Z]{2}$/.test(destination);
 
@@ -65,14 +73,19 @@ searchRouter.get(
         _originalMinRate: hotel.minRate,
       }));
 
-      res.json({
+      const responseBody = {
         hotels: hotelsWithMargin,
         total: results?.total || hotelsWithMargin.length,
         checkin,
         checkout,
         adults: parseInt(adults),
         currency,
-      });
+      };
+
+      // Cache the search results in Redis (5-minute TTL)
+      await cache.set(cacheKey, responseBody, 300);
+
+      res.json(responseBody);
     } catch (err) {
       next(err);
     }
@@ -80,6 +93,7 @@ searchRouter.get(
 );
 
 // ─── AI-powered intent search ─────────────────────────────────────────────────
+// Not cached — results are personalized per user query
 searchRouter.post('/intent', optionalAuth, async (req, res, next) => {
   try {
     const { query: userQuery, checkin, checkout, adults, budget, currency = 'USD' } = req.body;

@@ -1,0 +1,71 @@
+version: '3.9'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: adelbo_postgres
+    environment:
+      POSTGRES_USER: adelbo
+      POSTGRES_PASSWORD: adelbo_dev
+      POSTGRES_DB: adelbo
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./packages/api/src/db/migrations/001_initial.sql:/docker-entrypoint-initdb.d/001_initial.sql
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U adelbo']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: adelbo_redis
+    ports:
+      - '6379:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  api:
+    build:
+      context: ./packages/api
+      dockerfile: Dockerfile
+    container_name: adelbo_api
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: development
+      PORT: 3001
+      DATABASE_URL: postgresql://adelbo:adelbo_dev@postgres:5432/adelbo
+      REDIS_URL: redis://redis:6379
+    env_file:
+      - ./packages/api/.env
+    ports:
+      - '3001:3001'
+    volumes:
+      - ./packages/api/src:/app/src
+    command: npm run dev
+
+  web:
+    build:
+      context: ./packages/web
+      dockerfile: Dockerfile
+    container_name: adelbo_web
+    depends_on:
+      - api
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:3001
+    env_file:
+      - ./packages/web/.env.local
+    ports:
+      - '3000:3000'
+
+volumes:
+  postgres_data:

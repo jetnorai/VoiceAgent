@@ -8,6 +8,7 @@ import { AppError } from '../middleware/errorHandler';
 import { db } from '../db/client';
 import { hotels, reviews, aiRecommendationEvents } from '../db/schema';
 import { logger } from '../utils/logger';
+import { cache } from '../services/redis';
 
 export const hotelsRouter = Router();
 
@@ -21,7 +22,23 @@ hotelsRouter.get('/:hotelId', optionalAuth, async (req, res, next) => {
   try {
     const { hotelId } = req.params;
 
-    // Check cache first
+    // Check Redis cache first
+    const cacheKey = `hotel:${hotelId}`;
+    const cachedRedis = await cache.get(cacheKey);
+    if (cachedRedis) {
+      const verifiedReviews = await db
+        .select()
+        .from(reviews)
+        .where(eq(reviews.hotelId, hotelId))
+        .limit(20);
+
+      return res.json({
+        hotel: cachedRedis,
+        verifiedReviews,
+      });
+    }
+
+    // Check DB cache
     const [cached] = await db.select().from(hotels).where(eq(hotels.id, hotelId)).limit(1);
 
     let hotelData: any;
@@ -36,7 +53,7 @@ hotelsRouter.get('/:hotelId', optionalAuth, async (req, res, next) => {
         return next(new AppError(404, 'Hotel not found', 'HOTEL_NOT_FOUND'));
       }
 
-      // Cache the hotel
+      // Cache the hotel in DB
       await db
         .insert(hotels)
         .values({
@@ -65,6 +82,9 @@ hotelsRouter.get('/:hotelId', optionalAuth, async (req, res, next) => {
           },
         });
     }
+
+    // Store in Redis cache (1 hour TTL)
+    await cache.set(cacheKey, hotelData, 3600);
 
     // Get verified reviews from our DB
     const verifiedReviews = await db
@@ -107,6 +127,13 @@ hotelsRouter.get(
         guestNationality = 'US',
       } = req.query as Record<string, string>;
 
+      // Check Redis cache first (5-minute TTL for rates)
+      const cacheKey = `rates:${hotelId}:${checkin}:${checkout}:${adults}`;
+      const cachedRates = await cache.get(cacheKey);
+      if (cachedRates) {
+        return res.json({ rates: cachedRates, hotelId, checkin, checkout, adults, currency });
+      }
+
       const result = await liteapi.getHotelRates({
         hotelId,
         checkin,
@@ -129,6 +156,9 @@ hotelsRouter.get(
             }
           : rate.retailRate,
       }));
+
+      // Cache the rates in Redis (5-minute TTL)
+      await cache.set(cacheKey, rates, 300);
 
       res.json({ rates, hotelId, checkin, checkout, adults, currency });
     } catch (err) {

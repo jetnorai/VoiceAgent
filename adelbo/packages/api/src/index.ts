@@ -14,8 +14,12 @@ import { poolRouter } from './routes/pool';
 import { aiRouter } from './routes/ai';
 import { reviewsRouter } from './routes/reviews';
 import { paymentsRouter } from './routes/payments';
+import supportRouter from './routes/support';
+import notificationsRouter from './routes/notifications';
 import { errorHandler } from './middleware/errorHandler';
 import { stripeWebhookRouter } from './routes/webhooks/stripe';
+import { startBookingVerificationJob } from './jobs/bookingVerification';
+import { startPoolDistributionJob } from './jobs/poolDistribution';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -39,7 +43,7 @@ app.use(compression());
 
 // ─── Rate limiting ────────────────────────────────────────────────────────────
 app.use('/api', rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
+  windowMs: 15 * 60 * 1000,
   max: 200,
   standardHeaders: true,
   legacyHeaders: false,
@@ -60,12 +64,21 @@ app.use('/api/pool', poolRouter);
 app.use('/api/ai', aiRouter);
 app.use('/api/reviews', reviewsRouter);
 app.use('/api/payments', paymentsRouter);
+app.use('/api/support', supportRouter);
+app.use('/api/notifications', notificationsRouter);
 
 // ─── Error handling ───────────────────────────────────────────────────────────
 app.use(errorHandler);
 
 app.listen(PORT, () => {
   logger.info(`Adelbo API running on port ${PORT} (${process.env.NODE_ENV || 'development'})`);
+
+  // Start background jobs
+  if (process.env.NODE_ENV !== 'test') {
+    startBookingVerificationJob();
+    startPoolDistributionJob();
+    logger.info('Background jobs started');
+  }
 });
 
 export default app;
