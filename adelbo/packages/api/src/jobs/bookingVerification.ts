@@ -12,7 +12,7 @@
  * - On verify: Call completeBooking() on MarginSplitter
  */
 
-import { eq, and, lte } from 'drizzle-orm';
+import { eq, and, lte, desc } from 'drizzle-orm';
 import { db } from '../db/client';
 import { bookings, bookingEvents, travelCreditLedger, poolContributions, poolCycles } from '../db/schema';
 import { liteapi } from '../services/liteapi';
@@ -110,11 +110,11 @@ async function issueTravelCredit(booking: any): Promise<void> {
       .select()
       .from(travelCreditLedger)
       .where(eq(travelCreditLedger.userId, booking.userId))
-      .orderBy(travelCreditLedger.createdAt)
+      .orderBy(desc(travelCreditLedger.createdAt))
       .limit(1);
 
     // Get last balance
-    const lastEntry = history[history.length - 1];
+    const lastEntry = history[0];
     const currentBalance = lastEntry ? parseFloat(lastEntry.balanceAfter) : 0;
     const creditAmount = parseFloat(booking.travelCreditEarned);
     const newBalance = currentBalance + creditAmount;

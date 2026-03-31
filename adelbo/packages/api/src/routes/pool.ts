@@ -4,6 +4,7 @@ import { db } from '../db/client';
 import { poolCycles, poolContributions, bookings, users } from '../db/schema';
 import { optionalAuth, requireAuth } from '../middleware/auth';
 import { AppError } from '../middleware/errorHandler';
+import { logger } from '../utils/logger';
 
 export const poolRouter = Router();
 
@@ -162,3 +163,34 @@ function calculateLoyaltyScore(contributions: any[], tier?: string | null): numb
   const streakBonus = bookingCount >= 3 ? 1.2 : 1;
   return Math.round(totalContribution * bookingCount * tierMult * streakBonus * 100) / 100;
 }
+
+// POST /api/pool/cycle/new — open the next 30-day cycle (called by CRE after distribution)
+poolRouter.post('/cycle/new', async (req, res, next) => {
+  try {
+    const key = req.headers['x-admin-key'];
+    if (!key || key !== process.env.ADMIN_API_KEY) {
+      return next(new AppError(401, 'Unauthorized', 'UNAUTHORIZED'));
+    }
+
+    // Get latest cycle number
+    const [latest] = await db
+      .select()
+      .from(poolCycles)
+      .orderBy(desc(poolCycles.cycleNumber))
+      .limit(1);
+
+    const nextNumber = (latest?.cycleNumber ?? 0) + 1;
+    const startsAt = new Date();
+    const endsAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+    const [cycle] = await db
+      .insert(poolCycles)
+      .values({ cycleNumber: nextNumber, startsAt, endsAt, status: 'active' })
+      .returning();
+
+    logger.info('New pool cycle created', { cycleId: cycle.id, cycleNumber: nextNumber });
+    res.status(201).json({ cycle });
+  } catch (err) {
+    next(err);
+  }
+});

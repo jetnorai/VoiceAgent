@@ -228,3 +228,52 @@ adminRouter.patch('/support/:id', async (req, res, next) => {
     next(err);
   }
 });
+
+// ─── GET /api/admin/pool/cycles/:id/winners ───────────────────────────────────
+// Used by Chainlink CRE pool-distribution workflow to fetch winner list
+adminRouter.get('/pool/cycles/:id/winners', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { count: winnerCount = '3' } = req.query as Record<string, string>;
+
+    const { computeCycleWinners } = await import('../jobs/poolDistribution');
+    const winners = await computeCycleWinners(id, parseInt(winnerCount));
+
+    res.json({
+      cycleId: id,
+      list: winners,
+      addresses: winners.map((w) => w.walletAddress).filter(Boolean),
+      scores: winners.map((w) => Math.round(w.loyaltyScore * 1_000_000)),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── GET /api/admin/bookings/by-chain-id/:bookingId ───────────────────────────
+// Used by Chainlink CRE booking-verification workflow
+// bookingId is a bytes32 hex string from on-chain
+adminRouter.get('/bookings/by-chain-id/:bookingId', async (req, res, next) => {
+  try {
+    const { bookingId } = req.params;
+
+    // The chain bookingId is derived from the DB UUID: strip dashes, first 32 bytes, hex-padded
+    // Try to find by onChainTxHash or by reconstructed ID pattern
+    const allBookings = await db
+      .select()
+      .from(bookings)
+      .where(eq(bookings.status, 'confirmed'))
+      .limit(500);
+
+    // Match by reconstructed bytes32 (same logic as blockchain.ts line 75)
+    const match = allBookings.find((b) => {
+      const derived = Buffer.from(b.id.replace(/-/g, '')).slice(0, 32).toString('hex').padEnd(64, '0');
+      return `0x${derived}` === bookingId || derived === bookingId.replace(/^0x/, '');
+    });
+
+    if (!match) return next(new AppError(404, 'Booking not found', 'NOT_FOUND'));
+    res.json({ booking: match });
+  } catch (err) {
+    next(err);
+  }
+});

@@ -125,8 +125,10 @@ export async function distributePool(cycleId: string): Promise<void> {
         distributionAmount: amount.toFixed(2),
       })
       .where(
-        eq(poolContributions.userId, winner.userId) &&
-        eq(poolContributions.cycleId, cycleId)
+        and(
+          eq(poolContributions.userId, winner.userId),
+          eq(poolContributions.cycleId, cycleId)
+        )
       );
 
     logger.info('Pool winner', { rank: i + 1, userId: winner.userId, amount, loyaltyScore: winner.loyaltyScore });

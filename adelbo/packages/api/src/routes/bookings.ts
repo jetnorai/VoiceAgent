@@ -266,7 +266,7 @@ bookingsRouter.post('/:bookingId/confirm', requireAuth, async (req, res, next) =
       logger.warn('Confirmation email failed', { bookingId });
     }
 
-    res.json({ status: 'confirmed', liteApiBookingId });
+    res.json({ booking: { status: 'confirmed', id: bookingId, liteApiBookingId }, liteApiBookingId });
   } catch (err) {
     next(err);
   }

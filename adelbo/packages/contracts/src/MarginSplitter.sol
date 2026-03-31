@@ -48,6 +48,9 @@ contract MarginSplitter is Ownable, ReentrancyGuard {
 
     uint256 public bookingCount;
 
+    uint256 public wldUsdPrice; // WLD/USD price with 8 decimals (e.g. 2.50 USD = 250000000)
+    address public priceOracle; // authorized CRE price oracle address
+
     struct Booking {
         bytes32 bookingId;
         address user;
@@ -77,6 +80,7 @@ contract MarginSplitter is Ownable, ReentrancyGuard {
     );
 
     event BookingCompleted(bytes32 indexed bookingId, address indexed user);
+    event WldPriceUpdated(uint256 newPrice, address updatedBy);
     event BackendUpdated(address indexed newBackend);
     event CREWorkerUpdated(address indexed newWorker);
     event TreasuryUpdated(address indexed newTreasury);
@@ -277,6 +281,27 @@ contract MarginSplitter is Ownable, ReentrancyGuard {
 
     function setReputation(address _reputation) external onlyOwner {
         reputation = IReputation(_reputation);
+    }
+
+    /**
+     * @notice Update WLD/USD price — called by Chainlink CRE price oracle
+     * @param newPrice WLD/USD price with 8 decimals (e.g. 2.50 USD = 250_000_000)
+     */
+    function updateWldPrice(uint256 newPrice) external {
+        require(
+            msg.sender == owner() || msg.sender == priceOracle,
+            "Not authorized"
+        );
+        require(newPrice > 0, "Invalid price");
+        wldUsdPrice = newPrice;
+        emit WldPriceUpdated(newPrice, msg.sender);
+    }
+
+    /**
+     * @notice Set the authorized price oracle address (owner only)
+     */
+    function setPriceOracle(address _oracle) external onlyOwner {
+        priceOracle = _oracle;
     }
 
     /**
