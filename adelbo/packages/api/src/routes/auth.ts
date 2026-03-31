@@ -128,7 +128,34 @@ authRouter.post(
 
       const { proof, nullifierHash, merkleRoot, walletAddress } = req.body;
 
-      // Verify with World ID Developer Portal
+      // ── Deduplication: check if nullifier already exists ──────────────────
+      // If so, sign in directly without calling the portal (nullifiers are
+      // single-use at the portal level — re-submission would be rejected).
+      let [existingUser] = await db
+        .select()
+        .from(users)
+        .where(eq(users.worldId, nullifierHash))
+        .limit(1);
+
+      if (existingUser) {
+        // Returning user — issue JWT directly
+        const jwtToken = signToken({
+          userId: existingUser.id,
+          worldId: existingUser.worldId || undefined,
+          walletAddress: existingUser.walletAddress || undefined,
+        });
+        return res.json({
+          token: jwtToken,
+          user: {
+            id: existingUser.id,
+            walletAddress: existingUser.walletAddress,
+            tier: existingUser.tier,
+            isNewUser: false,
+          },
+        });
+      }
+
+      // ── New nullifier — verify with World ID Developer Portal ─────────────
       const verifyResponse = await fetch(
         `https://developer.worldcoin.org/api/v1/verify/${process.env.WORLD_APP_ID}`,
         {
@@ -139,56 +166,46 @@ authRouter.post(
             merkle_root: merkleRoot,
             proof,
             verification_level: 'orb',
-            action: 'adelbo-login',
+            action: process.env.WORLD_ACTION_ID || 'adelbo-sign-in',
           }),
         }
       );
 
       if (!verifyResponse.ok) {
+        const errBody = await verifyResponse.json().catch(() => ({}));
+        logger.warn('World ID portal rejection', { nullifierHash, status: verifyResponse.status, errBody });
         return next(new AppError(401, 'World ID verification failed', 'WORLD_ID_INVALID'));
       }
 
-      // Find or create user
-      let [user] = await db
-        .select()
-        .from(users)
-        .where(eq(users.worldId, nullifierHash))
-        .limit(1);
+      // ── Create new user ────────────────────────────────────────────────────
+      const referralCode = randomBytes(3).toString('hex').toUpperCase();
+      const [newUser] = await db
+        .insert(users)
+        .values({ worldId: nullifierHash, walletAddress, referralCode })
+        .returning();
 
-      if (!user) {
-        const referralCode = randomBytes(3).toString('hex').toUpperCase();
-        [user] = await db
-          .insert(users)
-          .values({
-            worldId: nullifierHash,
-            walletAddress,
-            referralCode,
-          })
-          .returning();
+      await db.insert(identityMethods).values({
+        userId: newUser.id,
+        method: 'world_id',
+        identifier: nullifierHash,
+        verifiedAt: new Date(),
+      });
 
-        await db.insert(identityMethods).values({
-          userId: user.id,
-          method: 'world_id',
-          identifier: nullifierHash,
-          verifiedAt: new Date(),
-        });
-
-        logger.info('New user created via World ID', { userId: user.id });
-      }
+      logger.info('New user created via World ID', { userId: newUser.id });
 
       const jwtToken = signToken({
-        userId: user.id,
-        worldId: user.worldId || undefined,
-        walletAddress: user.walletAddress || undefined,
+        userId: newUser.id,
+        worldId: newUser.worldId || undefined,
+        walletAddress: newUser.walletAddress || undefined,
       });
 
       res.json({
         token: jwtToken,
         user: {
-          id: user.id,
-          walletAddress: user.walletAddress,
-          tier: user.tier,
-          isNewUser: !user.displayName,
+          id: newUser.id,
+          walletAddress: newUser.walletAddress,
+          tier: newUser.tier,
+          isNewUser: true,
         },
       });
     } catch (err) {

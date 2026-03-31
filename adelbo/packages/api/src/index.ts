@@ -18,6 +18,7 @@ import supportRouter from './routes/support';
 import notificationsRouter from './routes/notifications';
 import { adminRouter } from './routes/admin';
 import { errorHandler } from './middleware/errorHandler';
+import { requestIdMiddleware } from './middleware/requestId';
 import { stripeWebhookRouter } from './routes/webhooks/stripe';
 import { startBookingVerificationJob } from './jobs/bookingVerification';
 import { startPoolDistributionJob } from './jobs/poolDistribution';
@@ -27,6 +28,7 @@ const PORT = process.env.PORT || 3001;
 
 // ─── Security middleware ──────────────────────────────────────────────────────
 app.use(helmet());
+app.use(requestIdMiddleware);
 app.use(cors({
   origin: [
     process.env.WEB_APP_URL || 'http://localhost:3000',

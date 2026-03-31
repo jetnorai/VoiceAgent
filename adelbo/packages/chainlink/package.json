@@ -1,0 +1,9 @@
+{
+  "name": "@adelbo/chainlink",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Chainlink CRE workflow definitions for Adelbo",
+  "scripts": {
+    "validate": "node scripts/validate.js"
+  }
+}

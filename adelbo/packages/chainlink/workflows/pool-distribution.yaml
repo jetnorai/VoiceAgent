@@ -1,0 +1,83 @@
+# Chainlink CRE Workflow: PoolDistribution
+# Trigger: Monthly cron — runs on the 1st of each month at 00:05 UTC
+# Action: Compute loyalty-weighted winners, call RewardPool.distributePool()
+#
+# Deterministic computation across CRE nodes ensures all nodes produce
+# the same winner set before any on-chain write (BFT consensus).
+
+name: PoolDistribution
+version: "1.0.0"
+description: >
+  At the end of each 30-day pool cycle, computes loyalty-weighted winners
+  and executes proportional USDC distribution via RewardPool.distributePool().
+
+# ─── Trigger ─────────────────────────────────────────────────────────────────
+trigger:
+  type: cron
+  schedule: "5 0 1 * *"    # 00:05 UTC on the 1st of every month
+
+# ─── Steps ───────────────────────────────────────────────────────────────────
+steps:
+  - id: get_active_cycle
+    type: http_get
+    description: "Fetch the current active pool cycle"
+    url: "${ADELBO_API_URL}/api/pool"
+    output: pool_data
+
+  - id: check_cycle_ended
+    type: condition
+    description: "Verify cycle end date has passed"
+    condition: "now() > pool_data.cycle.endsAt"
+    on_false: exit_success
+
+  - id: compute_winners
+    type: http_get
+    description: "Fetch contributions and compute loyalty scores off-chain"
+    url: "${ADELBO_API_URL}/api/admin/pool/cycles/${pool_data.cycle.id}/winners"
+    headers:
+      x-admin-key: "${ADMIN_API_KEY}"
+    output: winners
+    # Node set independently computes and verifies this result (BFT)
+
+  - id: check_has_winners
+    type: condition
+    condition: "len(winners.list) > 0"
+    on_false: close_empty_cycle
+
+  - id: distribute_onchain
+    type: evm_write
+    description: "Call RewardPool.distributePool(address[], uint256[])"
+    chain_id: 480
+    address: "${REWARD_POOL_ADDRESS}"
+    function: "distributePool(address[],uint256[])"
+    args:
+      - winners.addresses    # address[]
+      - winners.scores       # uint256[] — loyalty scores scaled ×1e6
+    gas_limit: 500000
+    consensus: bft
+
+  - id: close_empty_cycle
+    type: http_post
+    description: "Close cycle with no eligible participants"
+    url: "${ADELBO_API_URL}/api/admin/pool/distribute"
+    headers:
+      x-admin-key: "${ADMIN_API_KEY}"
+    body:
+      cycleId: "${pool_data.cycle.id}"
+    condition: "len(winners.list) == 0"
+
+  - id: open_next_cycle
+    type: http_post
+    description: "Open new 30-day cycle"
+    url: "${ADELBO_API_URL}/api/pool/cycle/new"
+    headers:
+      x-admin-key: "${ADMIN_API_KEY}"
+    body: {}
+
+# ─── Error handling ───────────────────────────────────────────────────────────
+on_error:
+  retry:
+    attempts: 3
+    backoff: exponential
+    initial_delay: 60s
+  on_failure: alert_pagerduty

@@ -67,5 +67,20 @@ services:
     ports:
       - '3000:3000'
 
+  mini-app:
+    build:
+      context: ./packages/mini-app
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:3001
+        NEXT_PUBLIC_WORLD_APP_ID: ${NEXT_PUBLIC_WORLD_APP_ID:-app_placeholder}
+    container_name: adelbo_mini_app
+    depends_on:
+      - api
+    ports:
+      - '3002:3002'
+    env_file:
+      - ./packages/mini-app/.env.local
+
 volumes:
   postgres_data:

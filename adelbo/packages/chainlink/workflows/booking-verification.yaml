@@ -1,0 +1,90 @@
+# Chainlink CRE Workflow: BookingVerification
+# Trigger: BookingProcessed event emitted by MarginSplitter.sol
+# Action: Verify stay completion via LiteAPI, then call MarginSplitter.completeBooking()
+#
+# This workflow runs on the Chainlink DON (Decentralized Oracle Network).
+# BFT consensus is achieved across the node set before any on-chain write.
+
+name: BookingVerification
+version: "1.0.0"
+description: >
+  Verifies hotel stays are completed after checkout + 24h buffer,
+  then triggers Travel Credit issuance and on-chain booking completion.
+
+# ─── Trigger ─────────────────────────────────────────────────────────────────
+trigger:
+  type: cron
+  schedule: "*/10 * * * *"   # every 10 minutes (fallback: event-driven below)
+
+# Event-driven trigger (primary): fired when MarginSplitter emits BookingProcessed
+event_trigger:
+  type: evm_log
+  chain_id: 480              # World Chain mainnet
+  address: "${MARGIN_SPLITTER_ADDRESS}"
+  abi_event: "BookingProcessed(bytes32 indexed bookingId, address indexed user, uint256 amount, string paymentMethod)"
+  confirmation_blocks: 2
+
+# ─── Inputs (from event or cron) ──────────────────────────────────────────────
+inputs:
+  - name: bookingId
+    type: bytes32
+    source: event.bookingId   # from BookingProcessed log
+
+# ─── Steps ───────────────────────────────────────────────────────────────────
+steps:
+  - id: fetch_booking_status
+    type: http_get
+    description: "Check booking status from Adelbo API"
+    url: "${ADELBO_API_URL}/api/admin/bookings/by-chain-id/${inputs.bookingId}"
+    headers:
+      x-admin-key: "${ADMIN_API_KEY}"
+      content-type: "application/json"
+    output: booking
+
+  - id: check_checkout_passed
+    type: condition
+    description: "Only proceed if checkout date + 24h has passed"
+    condition: "now() > booking.checkOut + 86400"
+    on_false: exit_success   # not ready yet, skip
+
+  - id: verify_liteapi_status
+    type: http_get
+    description: "Verify stay with LiteAPI"
+    url: "${LITEAPI_BASE_URL}/bookings/${booking.liteApiBookingId}"
+    headers:
+      apikey: "${LITEAPI_KEY}"
+    output: liteapi_result
+
+  - id: check_confirmed
+    type: condition
+    description: "Only complete if LiteAPI shows CONFIRMED or COMPLETED"
+    condition: "liteapi_result.data.status in ['CONFIRMED', 'COMPLETED']"
+    on_false: exit_success
+
+  - id: complete_booking_onchain
+    type: evm_write
+    description: "Call MarginSplitter.completeBooking() — triggers Travel Credit + pool contribution"
+    chain_id: 480
+    address: "${MARGIN_SPLITTER_ADDRESS}"
+    function: "completeBooking(bytes32,address)"
+    args:
+      - inputs.bookingId
+      - booking.userId
+    gas_limit: 200000
+    consensus: bft           # all nodes must agree before writing
+
+  - id: notify_api
+    type: http_post
+    description: "Notify Adelbo API of completion (updates DB, sends email)"
+    url: "${ADELBO_API_URL}/api/admin/jobs/verify-bookings"
+    headers:
+      x-admin-key: "${ADMIN_API_KEY}"
+    body: {}
+
+# ─── Error handling ───────────────────────────────────────────────────────────
+on_error:
+  retry:
+    attempts: 3
+    backoff: exponential
+    initial_delay: 30s
+  on_failure: alert_pagerduty

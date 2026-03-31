@@ -1,0 +1,53 @@
+# Chainlink CRE Workflow: WldUsdPriceOracle
+# Provides WLD/USD price to MarginSplitter for WLD payment conversions.
+# Aggregates from multiple CEX sources for tamper-resistance.
+
+name: WldUsdPriceOracle
+version: "1.0.0"
+description: >
+  Fetches WLD/USD price from multiple sources, computes median,
+  and writes to MarginSplitter price feed every 5 minutes.
+
+trigger:
+  type: cron
+  schedule: "*/5 * * * *"
+
+steps:
+  - id: fetch_prices
+    type: parallel_http
+    requests:
+      - id: binance
+        url: "https://api.binance.com/api/v3/ticker/price?symbol=WLDUSDT"
+        transform: "body.price | float"
+      - id: coingecko
+        url: "https://api.coingecko.com/api/v3/simple/price?ids=worldcoin-wld&vs_currencies=usd"
+        transform: "body.worldcoin-wld.usd | float"
+    output: raw_prices
+
+  - id: compute_median
+    type: compute
+    description: "Compute median price across sources"
+    expression: "median(raw_prices)"
+    output: wld_usd_price
+
+  - id: check_deviation
+    type: condition
+    description: "Only update if price deviated >0.5% from last written value"
+    condition: "abs(wld_usd_price - last_written_price) / last_written_price > 0.005"
+    on_false: exit_success
+
+  - id: write_price
+    type: evm_write
+    chain_id: 480
+    address: "${MARGIN_SPLITTER_ADDRESS}"
+    function: "updateWldPrice(uint256)"
+    args:
+      - "wld_usd_price * 1e8"   # 8 decimal fixed-point
+    gas_limit: 80000
+    consensus: bft
+
+on_error:
+  retry:
+    attempts: 2
+    backoff: linear
+    initial_delay: 10s
