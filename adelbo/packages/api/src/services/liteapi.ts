@@ -49,33 +49,29 @@ export interface CancelBookingParams {
 
 class LiteAPIClient {
   private client: AxiosInstance;
-  private sandboxClient: AxiosInstance;
-  private useSandbox: boolean;
 
   constructor() {
-    this.useSandbox = process.env.NODE_ENV !== 'production';
+    const API_KEY = process.env.LITEAPI_KEY;
+    if (!API_KEY) throw new Error('LITEAPI_KEY not configured');
 
-    const baseConfig = {
-      timeout: 30000,
-      headers: {
-        'X-API-Key': process.env.LITEAPI_KEY || 'sand_...',
-        'Content-Type': 'application/json',
-      },
-    };
+    const BASE_URL = process.env.LITEAPI_BASE_URL || (
+      process.env.NODE_ENV !== 'production'
+        ? 'https://sandbox.liteapi.travel/v3.0'
+        : 'https://api.liteapi.travel/v3.0'
+    );
 
     this.client = axios.create({
-      baseURL: 'https://api.liteapi.travel/v3.0',
-      ...baseConfig,
-    });
-
-    this.sandboxClient = axios.create({
-      baseURL: 'https://sandbox.liteapi.travel/v3.0',
-      ...baseConfig,
+      baseURL: BASE_URL,
+      timeout: 30000,
+      headers: {
+        'X-API-Key': API_KEY,
+        'Content-Type': 'application/json',
+      },
     });
   }
 
   private get http(): AxiosInstance {
-    return this.useSandbox ? this.sandboxClient : this.client;
+    return this.client;
   }
 
   // ─── Hotel data ────────────────────────────────────────────────────────────

@@ -42,10 +42,10 @@ const MARGIN_SPLITTER_ABI = [
 ] as const;
 
 function getWalletClient() {
-  if (!process.env.BACKEND_WALLET_PRIVATE_KEY) {
-    throw new Error('BACKEND_WALLET_PRIVATE_KEY not configured');
+  if (!process.env.TREASURY_PRIVATE_KEY) {
+    throw new Error('TREASURY_PRIVATE_KEY not configured');
   }
-  const account = privateKeyToAccount(process.env.BACKEND_WALLET_PRIVATE_KEY as `0x${string}`);
+  const account = privateKeyToAccount(process.env.TREASURY_PRIVATE_KEY as `0x${string}`);
   return createWalletClient({
     account,
     chain: worldChain,

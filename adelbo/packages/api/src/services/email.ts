@@ -3,8 +3,8 @@ import { logger } from '../utils/logger';
 
 sgMail.setApiKey(process.env.SENDGRID_API_KEY || '');
 
-const FROM_EMAIL = 'noreply@adelbo.com';
-const FROM_NAME = 'Adelbo';
+const FROM_EMAIL = process.env.SENDGRID_FROM_EMAIL || 'noreply@adelbo.com';
+const FROM_NAME = process.env.SENDGRID_FROM_NAME || 'Adelbo';
 
 export async function sendOTP(email: string, token: string): Promise<void> {
   try {

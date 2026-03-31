@@ -14,12 +14,12 @@ const config: HardhatUserConfig = {
     hardhat: {},
     worldchain_testnet: {
       url: 'https://worldchain-sepolia.g.alchemy.com/v2/' + (process.env.ALCHEMY_KEY || ''),
-      accounts: process.env.BACKEND_WALLET_PRIVATE_KEY ? [process.env.BACKEND_WALLET_PRIVATE_KEY] : [],
+      accounts: process.env.DEPLOYER_PRIVATE_KEY ? [process.env.DEPLOYER_PRIVATE_KEY] : [],
       chainId: 4801,
     },
     worldchain: {
       url: 'https://worldchain-mainnet.g.alchemy.com/v2/' + (process.env.ALCHEMY_KEY || ''),
-      accounts: process.env.BACKEND_WALLET_PRIVATE_KEY ? [process.env.BACKEND_WALLET_PRIVATE_KEY] : [],
+      accounts: process.env.DEPLOYER_PRIVATE_KEY ? [process.env.DEPLOYER_PRIVATE_KEY] : [],
       chainId: 480,
     },
   },
