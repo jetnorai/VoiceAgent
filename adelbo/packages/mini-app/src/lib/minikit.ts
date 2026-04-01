@@ -1,104 +1,162 @@
-import { MiniKit, VerificationLevel, MiniAppVerifyActionSuccessPayload } from '@worldcoin/minikit-js';
+import { MiniKit, Tokens, PayCommandInput, MiniKitInstallErrorCodes } from '@worldcoin/minikit-js';
 
 export function initMiniKit(): void {
-  if (typeof window !== 'undefined') {
-    MiniKit.install(process.env.NEXT_PUBLIC_WORLD_APP_ID);
+  if (typeof window === 'undefined') return;
+  const appId = process.env.NEXT_PUBLIC_WORLD_APP_ID;
+  if (!appId) {
+    console.warn('NEXT_PUBLIC_WORLD_APP_ID not set');
+    return;
   }
+  MiniKit.install(appId);
 }
 
 export function isMiniKitAvailable(): boolean {
   return typeof window !== 'undefined' && MiniKit.isInstalled();
 }
 
-/**
- * Trigger World ID verification for sign-in.
- * Returns the proof payload to send to backend for verification.
- */
-export async function verifyWorldId(): Promise<MiniAppVerifyActionSuccessPayload | null> {
-  if (!isMiniKitAvailable()) return null;
-
-  try {
-    const { finalPayload } = await MiniKit.commandsAsync.verify({
-      action: 'adelbo-login',
-      verification_level: VerificationLevel.Orb,
-    });
-
-    if (finalPayload.status === 'error') {
-      console.error('World ID verification failed', finalPayload);
-      return null;
-    }
-
-    return finalPayload as MiniAppVerifyActionSuccessPayload;
-  } catch (err) {
-    console.error('verifyWorldId error', err);
-    return null;
-  }
+export interface WorldPayResult {
+  success: boolean;
+  transactionId?: string;
+  error?: string;
 }
 
 /**
- * Pay with USDC via World Wallet.
+ * Pay with USDC via World Wallet (World App only).
+ * Uses the current MiniKit.pay() API — commandsAsync.pay is deprecated.
+ *
+ * @param to  Recipient address (MarginSplitter contract)
+ * @param amount  Amount in USD decimal string e.g. "149.99"
+ * @param reference  Unique reference string (booking ID)
+ * @param description  Human-readable description shown in World App
  */
-export async function payWithUsdc(params: {
-  to: string;       // MarginSplitter contract address
-  amount: string;   // USDC amount (6 decimals string)
-  description: string;
-  reference: string; // booking ID
-}): Promise<{ txHash: string } | null> {
-  if (!isMiniKitAvailable()) return null;
+export async function payWithUsdc(
+  to: string,
+  amount: string,
+  reference: string,
+  description: string,
+): Promise<WorldPayResult> {
+  if (!isMiniKitAvailable()) {
+    return { success: false, error: 'World App not available' };
+  }
 
   try {
-    const { finalPayload } = await MiniKit.commandsAsync.pay({
-      reference: params.reference,
-      to: params.to,
+    const payload: PayCommandInput = {
+      reference,
+      to,
       tokens: [
         {
-          symbol: 'USDC',
-          token_amount: params.amount,
+          symbol: Tokens.USDC,
+          token_amount: amount, // decimal string in USD e.g. "149.99"
         },
       ],
-      description: params.description,
-    });
+      description,
+    };
 
-    if (finalPayload.status !== 'success') {
-      console.error('USDC payment failed', finalPayload);
-      return null;
+    const result = await MiniKit.pay(payload);
+
+    if (result.finalPayload?.status === 'success') {
+      return {
+        success: true,
+        transactionId: result.finalPayload.transaction_id,
+      };
     }
 
-    return { txHash: (finalPayload as any).transaction_id };
-  } catch (err) {
-    console.error('payWithUsdc error', err);
-    return null;
+    return {
+      success: false,
+      error: result.finalPayload?.error_code || 'Payment failed',
+    };
+  } catch (err: any) {
+    return { success: false, error: err.message };
   }
 }
 
 /**
  * Pay with WLD via World Wallet.
+ * WLD amount should be pre-computed from USD using the on-chain price oracle.
+ *
+ * @param to  Recipient address (MarginSplitter contract)
+ * @param wldAmount  Amount in WLD decimal string e.g. "42.5"
+ * @param reference  Unique reference string (booking ID)
+ * @param description  Human-readable description
  */
-export async function payWithWld(params: {
-  to: string;
-  amount: string;
-  description: string;
-  reference: string;
-}): Promise<{ txHash: string } | null> {
-  if (!isMiniKitAvailable()) return null;
+export async function payWithWld(
+  to: string,
+  wldAmount: string,
+  reference: string,
+  description: string,
+): Promise<WorldPayResult> {
+  if (!isMiniKitAvailable()) {
+    return { success: false, error: 'World App not available' };
+  }
 
   try {
-    const { finalPayload } = await MiniKit.commandsAsync.pay({
-      reference: params.reference,
-      to: params.to,
+    const payload: PayCommandInput = {
+      reference,
+      to,
       tokens: [
         {
-          symbol: 'WLD',
-          token_amount: params.amount,
+          symbol: Tokens.WLD,
+          token_amount: wldAmount,
         },
       ],
-      description: params.description,
+      description,
+    };
+
+    const result = await MiniKit.pay(payload);
+
+    if (result.finalPayload?.status === 'success') {
+      return {
+        success: true,
+        transactionId: result.finalPayload.transaction_id,
+      };
+    }
+
+    return {
+      success: false,
+      error: result.finalPayload?.error_code || 'Payment failed',
+    };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+}
+
+/**
+ * Verify World ID proof using MiniKit.
+ * Returns the nullifier hash and proof for backend verification.
+ */
+export async function verifyWorldId(action: string, signal?: string): Promise<{
+  success: boolean;
+  proof?: string;
+  nullifierHash?: string;
+  merkleRoot?: string;
+  error?: string;
+}> {
+  if (!isMiniKitAvailable()) {
+    return { success: false, error: 'World App not available' };
+  }
+
+  try {
+    const { CommandsAsync } = await import('@worldcoin/minikit-js');
+    const result = await MiniKit.commandsAsync.verify({
+      action,
+      signal: signal || '',
+      verification_level: 'orb',
     });
 
-    if (finalPayload.status !== 'success') return null;
-    return { txHash: (finalPayload as any).transaction_id };
-  } catch (err) {
-    console.error('payWithWld error', err);
-    return null;
+    if (result.finalPayload?.status === 'success') {
+      return {
+        success: true,
+        proof: result.finalPayload.proof,
+        nullifierHash: result.finalPayload.nullifier_hash,
+        merkleRoot: result.finalPayload.merkle_root,
+      };
+    }
+
+    return {
+      success: false,
+      error: result.finalPayload?.error_code || 'Verification failed',
+    };
+  } catch (err: any) {
+    return { success: false, error: err.message };
   }
 }

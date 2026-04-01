@@ -101,34 +101,25 @@ function CheckoutContent() {
 
       // 3. Pay via World Wallet
       const contractAddress = process.env.NEXT_PUBLIC_MARGIN_SPLITTER_ADDRESS || '';
-      const amountMicro = Math.round(totalAmount * 1_000_000).toString(); // USDC 6 decimals
+      const amountDecimal = totalAmount.toFixed(2); // USD decimal string e.g. "149.99"
+      const description = `Adelbo — ${hotel?.name || 'Hotel booking'}`;
 
       let result;
       if (paymentMethod === 'usdc') {
-        result = await payWithUsdc({
-          to: contractAddress,
-          amount: amountMicro,
-          description: `Adelbo — ${hotel?.name || 'Hotel booking'}`,
-          reference: booking.bookingId,
-        });
+        result = await payWithUsdc(contractAddress, amountDecimal, booking.bookingId, description);
       } else {
         // WLD: backend converts at oracle price — approximate here
         // In production the backend computes exact WLD amount
-        result = await payWithWld({
-          to: contractAddress,
-          amount: amountMicro, // backend adjusts
-          description: `Adelbo — ${hotel?.name || 'Hotel booking'}`,
-          reference: booking.bookingId,
-        });
+        result = await payWithWld(contractAddress, amountDecimal, booking.bookingId, description);
       }
 
-      if (!result) {
-        toast.error('Payment was cancelled');
+      if (!result.success) {
+        toast.error(result.error || 'Payment was cancelled');
         return;
       }
 
       // 4. Confirm booking with tx hash
-      await confirmMutation.mutateAsync({ bookingId: booking.bookingId, txHash: result.txHash });
+      await confirmMutation.mutateAsync({ bookingId: booking.bookingId, txHash: result.transactionId || '' });
 
       toast.success('Booking confirmed!');
       router.push(`/trips/${booking.bookingId}?confirmed=1`);
